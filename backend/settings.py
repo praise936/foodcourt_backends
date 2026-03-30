@@ -1,12 +1,12 @@
 from pathlib import Path
 from decouple import config
 import dj_database_url
-
+import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 # SECRET_KEY = 'django-insecure-k38o)1hz2h7tqu=w4h@8$nda(ai-e-m3#8%2$2ztwi*s&ekn5u'
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = ["*"]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -82,7 +82,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = '/static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
