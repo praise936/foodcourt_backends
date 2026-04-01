@@ -4,6 +4,7 @@ from . import views
 urlpatterns = [
     # Auth
     path('auth/register/', views.register),
+    path('auth/google/', views.google_auth),
     path('auth/profile/', views.profile),
     path('auth/password-change/', views.change_password),
     path('auth/password-reset/', views.password_reset_request),

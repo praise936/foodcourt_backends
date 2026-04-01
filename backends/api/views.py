@@ -1,5 +1,6 @@
 from django.utils.crypto import get_random_string
 from django.contrib.auth import get_user_model
+from django.utils.timezone import now
 from rest_framework import status, generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -17,6 +18,9 @@ from .serializers import (
 )
 from .permissions import IsAdmin, IsManager, IsCustomer, IsAdminOrManager
 from .fcm import send_push, send_multicast
+from .fcm import _get_app
+
+from firebase_admin import auth as firebase_auth
 
 User = get_user_model()
 
@@ -77,6 +81,60 @@ def password_reset_request(request):
     except User.DoesNotExist:
         pass
     return Response({'detail': 'If this email exists, a reset link has been sent.'})
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def google_auth(request):
+    """Sign in/up with Google using a Firebase ID token, then return backend JWT tokens."""
+    id_token = request.data.get('id_token')
+    if not id_token:
+        return Response({'detail': 'id_token is required.'}, status=400)
+
+    try:
+        app = _get_app()
+        decoded = firebase_auth.verify_id_token(id_token, app=app)
+        email = (decoded.get('email') or '').strip().lower()
+        if not email:
+            return Response({'detail': 'Google token did not include an email.'}, status=400)
+
+        name = decoded.get('name') or decoded.get('displayName')
+        picture = decoded.get('picture')
+        email_verified = decoded.get('email_verified', True)
+
+        print(
+            f"🔐 GOOGLE AUTH: email={email} verified={email_verified} uid={decoded.get('uid')} at={now().isoformat()}"
+        )
+
+        user = User.objects.filter(email=email).first()
+        created = False
+        if user is None:
+            created = True
+            display_name = name or email.split('@')[0]
+            user = User.objects.create_user(
+                email=email,
+                password=None,
+                display_name=display_name,
+                avatar_url=picture,
+            )
+        else:
+            # Fill missing profile fields, but don't overwrite user-managed data.
+            dirty = False
+            if (not user.display_name) and name:
+                user.display_name = name
+                dirty = True
+            if (not user.avatar_url) and picture:
+                user.avatar_url = picture
+                dirty = True
+            if dirty:
+                user.save(update_fields=['display_name', 'avatar_url'])
+
+        payload = {**get_tokens(user), 'user': UserSerializer(user).data, 'created': created}
+        return Response(payload, status=200)
+
+    except Exception as e:
+        print(f"❌ GOOGLE AUTH error: {e}")
+        return Response({'detail': 'Invalid Google credentials.'}, status=401)
 
 
 @api_view(['POST'])
@@ -575,7 +633,7 @@ def create_manager(request):
 # def create_manager(request):
 #     if request.user.role != 'platform_admin':
 #         return Response({'detail': 'Forbidden.'}, status=403)
-    
+    # google_auth
 #     email = request.data.get('email', '').strip()
 #     display_name = request.data.get('display_name', '').strip()
     
