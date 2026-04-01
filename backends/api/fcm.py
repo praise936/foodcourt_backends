@@ -20,10 +20,12 @@ def _get_app():
 def send_push(token: str, title: str, body: str, data: dict = None):
     """Send push notification to a single device."""
     if not token:
-        print('⚠️ FCM: No token provided, skipping')
+        print('⚠️ FCM: No token provided, skipping send_push')
         return None
     try:
         _get_app()
+        token_preview = f"{token[:10]}...{token[-6:]}" if isinstance(token, str) and len(token) > 20 else str(token)
+        print(f"ℹ️ FCM: send_push token={token_preview} title={title} data={data or {}}")
         message = messaging.Message(
             notification=messaging.Notification(title=title, body=body),
             data={k: str(v) for k, v in (data or {}).items()},
@@ -59,6 +61,7 @@ def send_multicast(tokens: list, title: str, body: str, data: dict = None):
         return None
     try:
         _get_app()
+        print(f"ℹ️ FCM: send_multicast tokens={len(tokens)} title={title} data={data or {}}")
         message = messaging.MulticastMessage(
             notification=messaging.Notification(title=title, body=body),
             data={k: str(v) for k, v in (data or {}).items()},
@@ -68,6 +71,13 @@ def send_multicast(tokens: list, title: str, body: str, data: dict = None):
                 notification=messaging.AndroidNotification(
                     channel_id='foodcourt_orders',
                     sound='default',
+                ),
+            ),
+            webpush=messaging.WebpushConfig(
+                notification=messaging.WebpushNotification(
+                    title=title,
+                    body=body,
+                    icon='/icons/Icon-192.png',
                 ),
             ),
         )
@@ -89,7 +99,7 @@ def notify_order_update(order):
         'confirmed': ('Order Confirmed! 🎉', f'Your order from {order.restaurant.name} has been confirmed.'),
         'preparing': ('Being Prepared 👨‍🍳', f'{order.restaurant.name} is preparing your order.'),
         'ready': ('Order Ready! 🍽️', f'Your order from {order.restaurant.name} is ready for pickup.'),
-        'delivered': ('Order Delivered! ✅', f'Your order has been delivered. Enjoy your meal!'),
+        'completed': ('Order Complete ✅', 'Enjoy your meal! Don\'t forget to leave a review.'),
         'cancelled': ('Order Cancelled ❌', f'Your order from {order.restaurant.name} was cancelled.'),
     }
 
@@ -99,7 +109,12 @@ def notify_order_update(order):
             token=customer.fcm_token,
             title=title,
             body=body,
-            data={'type': 'order_update', 'order_id': str(order.id), 'status': order.status},
+            data={
+                'type': 'order_update',
+                'order_id': str(order.id),
+                'status': order.status,
+                'restaurant_id': str(order.restaurant_id),
+            },
         )
 
 
@@ -113,5 +128,9 @@ def notify_new_order(order):
         token=manager.fcm_token,
         title='New Order! 🛒',
         body=f'Order #{str(order.id)[:8]} received — KSh {order.total_amount}',
-        data={'type': 'new_order', 'order_id': str(order.id)},
+        data={
+            'type': 'new_order',
+            'order_id': str(order.id),
+            'restaurant_id': str(order.restaurant_id),
+        },
     )

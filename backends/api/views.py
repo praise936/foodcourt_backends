@@ -214,7 +214,16 @@ def menu_items(request, restaurant_pk):
         tokens = list(User.objects.filter(
             role='customer', fcm_token__isnull=False
         ).exclude(fcm_token='').values_list('fcm_token', flat=True))
-        send_multicast(tokens, f'{r.name}', f'{item.name} is now available! 🍽')
+        send_multicast(
+            tokens,
+            f'{r.name}',
+            f'{item.name} is now available! 🍽',
+            data={
+                'type': 'menu',
+                'restaurant_id': str(r.id),
+                'menu_item_id': str(item.id),
+            },
+        )
         return Response(MenuItemSerializer(item).data, status=201)
     return Response(ser.errors, status=400)
 
@@ -234,7 +243,22 @@ def menu_item_detail(request, pk):
     if request.method == 'PATCH':
         ser = MenuItemSerializer(item, data=request.data, partial=True)
         if ser.is_valid():
-            ser.save()
+            updated = ser.save()
+            # Public notify all customers on menu updates
+            tokens = list(User.objects.filter(
+                role='customer', fcm_token__isnull=False
+            ).exclude(fcm_token='').values_list('fcm_token', flat=True))
+            send_multicast(
+                tokens,
+                f'{updated.restaurant.name}',
+                f'{updated.name} was updated ✨',
+                data={
+                    'type': 'menu',
+                    'restaurant_id': str(updated.restaurant_id),
+                    'menu_item_id': str(updated.id),
+                    'event': 'updated',
+                },
+            )
             return Response(ser.data)
         return Response(ser.errors, status=400)
 
@@ -286,8 +310,8 @@ def orders(request):
         return Response(OrderSerializer(qs, many=True).data)
 
     # POST — place order (customer only)
-    # if request.user.role != 'customer':
-    #     return Response({'detail': 'Only customers can place orders.'}, status=403)
+    if request.user.role != 'customer':
+        return Response({'detail': 'Only customers can place orders.'}, status=403)
 
     ser = PlaceOrderSerializer(data=request.data)
     if not ser.is_valid():
@@ -333,12 +357,6 @@ def orders(request):
 
     # Notify manager
     notify_new_order(order)
-    if restaurant.manager and restaurant.manager.fcm_token:
-        send_push(
-            restaurant.manager.fcm_token,
-            f'New Order #{str(order.id)[:8].upper()}',
-            f'From {request.user.display_name} • KSh {total:,.0f}',
-        )
 
     # Save notification
     if restaurant.manager:
@@ -397,9 +415,8 @@ def update_order_status(request, pk):
         'completed': ('Order Complete', 'Enjoy your meal! Don\'t forget to leave a review.'),
     }
     notify_order_update(order)
-    if new_status in messages and order.customer.fcm_token:
+    if new_status in messages:
         title, body = messages[new_status]
-        send_push(order.customer.fcm_token, title, body)
         Notification.objects.create(
             user=order.customer,
             type=f'order_{new_status}',
@@ -431,9 +448,9 @@ def cancel_order(request, pk):
     order.status = 'cancelled'
     order.save(update_fields=['status', 'updated_at'])
 
-    if is_manager and order.customer.fcm_token:
-        send_push(order.customer.fcm_token, 'Order Cancelled',
-                  f'Your order from {order.restaurant_name} was cancelled.')
+    if is_manager:
+        # Notify the customer with consistent payload data.
+        notify_order_update(order)
         Notification.objects.create(
             user=order.customer,
             type='order_cancelled',
