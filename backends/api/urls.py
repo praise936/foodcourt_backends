@@ -35,7 +35,10 @@ urlpatterns = [
 
     # Reviews
     path('reviews/', views.reviews),
-    path('reviews/<uuid:pk>/', views.delete_review),
+    path('reviews/<uuid:pk>/', views.review_detail),
+
+    # Chat
+    path('chat/messages/', views.chat_messages),
 
     # Admin
     path('admin/stats/', views.admin_stats),

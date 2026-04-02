@@ -10,12 +10,13 @@ from .serializers import CategorySerializer as CS
 from .serializers import CategorySerializer
 from .fcm import notify_order_update, notify_new_order
 
-from .models import Restaurant, MenuItem, Order, OrderItem, Review, Notification, Category
+from .models import Restaurant, MenuItem, Order, OrderItem, Review, Notification, Category, ChatMessage
 from .serializers import (
     UserSerializer, RegisterSerializer, RestaurantSerializer,
     RestaurantDetailSerializer, MenuItemSerializer, OrderSerializer,
     PlaceOrderSerializer, ReviewSerializer, NotificationSerializer,
 )
+from .serializers import ChatMessageSerializer
 from .permissions import IsAdmin, IsManager, IsCustomer, IsAdminOrManager
 from .fcm import send_push, send_multicast
 from .fcm import _get_app
@@ -555,16 +556,116 @@ def reviews(request):
     return Response(ser.errors, status=400)
 
 
-@api_view(['DELETE'])
+@api_view(['PATCH', 'DELETE'])
 @permission_classes([IsAuthenticated])
-def delete_review(request, pk):
+def review_detail(request, pk):
     try:
-        review = Review.objects.get(pk=pk, customer=request.user)
-        review.restaurant.update_rating()
-        review.delete()
-        return Response(status=204)
+        review = Review.objects.get(pk=pk)
     except Review.DoesNotExist:
         return Response({'detail': 'Not found.'}, status=404)
+
+    # Only the owning customer may edit/delete their review.
+    if not (request.user.is_authenticated and request.user.role == 'customer' and review.customer == request.user):
+        return Response({'detail': 'Forbidden.'}, status=403)
+
+    if request.method == 'PATCH':
+        ser = ReviewSerializer(review, data=request.data, partial=True)
+        if ser.is_valid():
+            ser.save()
+            review.restaurant.update_rating()
+            return Response(ReviewSerializer(review).data)
+        return Response(ser.errors, status=400)
+
+    # DELETE
+    review.restaurant.update_rating()
+    review.delete()
+    return Response(status=204)
+
+
+# ── CHAT ─────────────────────────────────────────────────────────────────────
+@api_view(['GET', 'POST'])
+def chat_messages(request):
+    if request.method == 'GET':
+        restaurant_id = request.query_params.get('restaurant_id')
+        if not restaurant_id:
+            return Response([], status=200)
+        qs = ChatMessage.objects.filter(restaurant_id=restaurant_id).order_by('created_at')
+        return Response(ChatMessageSerializer(qs, many=True).data)
+
+    # POST
+    if not (request.user.is_authenticated and request.user.role == 'customer'):
+        return Response({'detail': 'Only customers can send messages.'}, status=403)
+
+    restaurant_id = request.data.get('restaurant_id')
+    message = (request.data.get('message') or '').strip()
+    if not restaurant_id:
+        return Response({'detail': 'restaurant_id is required.'}, status=400)
+    if not message:
+        return Response({'detail': 'message is required.'}, status=400)
+
+    try:
+        restaurant = Restaurant.objects.get(pk=restaurant_id)
+    except Restaurant.DoesNotExist:
+        return Response({'detail': 'Restaurant not found.'}, status=404)
+
+    chat = ChatMessage.objects.create(
+        restaurant=restaurant,
+        customer=request.user,
+        customer_name=request.user.display_name,
+        message=message,
+    )
+
+    # Notify: restaurant manager + customers who previously interacted with this restaurant.
+    # "Interacted" = placed an order OR left a review OR posted a chat message.
+    interacted_customer_ids = set(
+        Order.objects.filter(restaurant=restaurant).values_list('customer_id', flat=True)
+    )
+    interacted_customer_ids.update(
+        Review.objects.filter(restaurant=restaurant).values_list('customer_id', flat=True)
+    )
+    interacted_customer_ids.update(
+        ChatMessage.objects.filter(restaurant=restaurant).values_list('customer_id', flat=True)
+    )
+    interacted_customer_ids.discard(request.user.id)
+
+    tokens = list(
+        User.objects.filter(
+            role='customer',
+            id__in=list(interacted_customer_ids),
+            fcm_token__isnull=False,
+        )
+        .exclude(fcm_token='')
+        .values_list('fcm_token', flat=True)
+    )
+
+    title = f'{restaurant.name}'
+    body = f'{request.user.display_name} commented on {restaurant.name}'
+    send_multicast(
+        tokens,
+        title,
+        body,
+        data={
+            'type': 'chat_message',
+            'restaurant_id': str(restaurant.id),
+            'chat_id': str(chat.id),
+        },
+    )
+
+    manager = restaurant.manager
+    if manager and manager.fcm_token:
+        send_push(
+            token=manager.fcm_token,
+            title=f'{restaurant.name}',
+            body=f'New comment about your restaurant',
+            data={
+                'type': 'chat_message',
+                'restaurant_id': str(restaurant.id),
+                'chat_id': str(chat.id),
+                'for': 'manager',
+            },
+        )
+
+    return Response(ChatMessageSerializer(chat).data, status=201)
 
 
 # ── ADMIN ─────────────────────────────────────────────────────────────────────

@@ -165,6 +165,32 @@ class Review(models.Model):
         return f'{self.customer_name} → {self.restaurant.name} ({self.rating}★)'
 
 
+class ChatMessage(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    restaurant = models.ForeignKey(
+        Restaurant,
+        on_delete=models.CASCADE,
+        related_name='chat_messages',
+    )
+    customer = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='chat_messages',
+    )
+    customer_name = models.CharField(max_length=100)
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        preview = (self.message or '').strip().replace('\n', ' ')
+        if len(preview) > 40:
+            preview = preview[:40] + '…'
+        return f'{self.customer_name} @ {self.restaurant.name}: {preview}'
+
+
 class Notification(models.Model):
     TYPES = [
         ('order_placed', 'Order Placed'),

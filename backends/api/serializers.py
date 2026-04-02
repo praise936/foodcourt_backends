@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, Restaurant, Category, MenuItem, Order, OrderItem, Review, Notification
+from .models import User, Restaurant, Category, MenuItem, Order, OrderItem, Review, Notification, ChatMessage
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -123,3 +123,10 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
         fields = ['id', 'type', 'title', 'body', 'is_read', 'created_at']
+
+
+class ChatMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ChatMessage
+        fields = ['id', 'restaurant_id', 'customer_id', 'customer_name', 'message', 'created_at']
+        read_only_fields = ['id', 'customer_id', 'customer_name', 'created_at']
