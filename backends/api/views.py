@@ -200,8 +200,27 @@ def restaurants(request):
 
         ser = RestaurantSerializer(data=request.data)
         if ser.is_valid():
-            ser.save()
-            return Response(ser.data, status=201)
+            restaurant = ser.save()
+
+            # Notify all app users about the new restaurant.
+            tokens = list(
+                User.objects.filter(fcm_token__isnull=False)
+                .exclude(fcm_token='')
+                .values_list('fcm_token', flat=True)
+            )
+            name = restaurant.name or 'New Restaurant'
+            send_multicast(
+                tokens,
+                'New restaurant in town',
+                f'A new restaurant in town ({name}) check it out',
+                data={
+                    'type': 'restaurant_update',
+                    'event': 'created',
+                    'restaurant_id': str(restaurant.id),
+                },
+            )
+
+            return Response(RestaurantSerializer(restaurant).data, status=201)
 
         return Response(ser.errors, status=400)
 
@@ -222,10 +241,48 @@ def restaurant_detail(request, pk):
                              and r.manager == request.user)
         if not (is_admin or is_linked_manager):
             return Response({'detail': 'Forbidden.'}, status=403)
+
+        prev_cover = r.cover_url
+        prev_logo = r.logo_url
+
         ser = RestaurantSerializer(r, data=request.data, partial=True)
         if ser.is_valid():
-            ser.save()
-            return Response(ser.data)
+            updated = ser.save()
+
+            # Notify all app users when branding assets change.
+            cover_changed = ('cover_url' in request.data) and (updated.cover_url != prev_cover)
+            logo_changed = ('logo_url' in request.data) and (updated.logo_url != prev_logo)
+
+            if cover_changed or logo_changed:
+                tokens = list(
+                    User.objects.filter(fcm_token__isnull=False)
+                    .exclude(fcm_token='')
+                    .values_list('fcm_token', flat=True)
+                )
+                if cover_changed:
+                    send_multicast(
+                        tokens,
+                        f'{updated.name}',
+                        f'{updated.name} updated their cover photo',
+                        data={
+                            'type': 'restaurant_update',
+                            'event': 'cover_updated',
+                            'restaurant_id': str(updated.id),
+                        },
+                    )
+                if logo_changed:
+                    send_multicast(
+                        tokens,
+                        f'{updated.name}',
+                        f'{updated.name} updated their logo',
+                        data={
+                            'type': 'restaurant_update',
+                            'event': 'logo_updated',
+                            'restaurant_id': str(updated.id),
+                        },
+                    )
+
+            return Response(RestaurantSerializer(updated).data)
         return Response(ser.errors, status=400)
 
     if request.method == 'DELETE':
