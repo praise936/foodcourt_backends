@@ -3,8 +3,8 @@ from decouple import config
 import dj_database_url
 import os
 BASE_DIR = Path(__file__).resolve().parent.parent
-SECRET_KEY = 'django-insecure-k38o)1hz2h7tqu=w4h@8$nda(ai-e-m3#8%2$2ztwi*s&ekn5u'
-# SECRET_KEY = config('SECRET_KEY')
+# SECRET_KEY = 'django-insecure-k38o)1hz2h7tqu=w4h@8$nda(ai-e-m3#8%2$2ztwi*s&ekn5u'
+SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = ["*"]
 
@@ -54,18 +54,18 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'backend.wsgi.application'
 
-# DATABASES = {
-#     'default': dj_database_url.config(
-#         default=config('DATABASE_URL', default='postgresql://postgres:HrHZoHdgGUcOFNKTvnQAwTKisVhiXDHf@postgres.railway.internal:5432/railway'),
-#         conn_max_age=600,
-#     )
-# }
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.config(
+        default=config('DATABASE_URL', default='postgresql://postgres:HrHZoHdgGUcOFNKTvnQAwTKisVhiXDHf@postgres.railway.internal:5432/railway'),
+        conn_max_age=600,
+    )
 }
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
 
 AUTH_USER_MODEL = 'api.User'
 
