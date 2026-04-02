@@ -46,6 +46,8 @@ urlpatterns = [
     path('admin/users/', views.admin_users),
     path('admin/create-manager/', views.create_manager),
     path('admin/unassigned-managers/', views.unassigned_managers),
+    # Admin operations
+    path('admin/app-update/', views.broadcast_app_update),
 
     # Dashboard
     path('dashboard/stats/', views.dashboard_stats),

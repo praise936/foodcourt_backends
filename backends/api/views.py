@@ -149,6 +149,61 @@ def save_fcm_token(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def broadcast_app_update(request):
+    """Broadcast a new app release notification (APK sideload flow).
+
+    Expected JSON:
+      - apk_url: public HTTPS link to the APK
+      - version_name: (optional) e.g. 1.0.1
+      - version_code: (optional) e.g. 2
+      - title/body: (optional) override notification text
+
+    Only platform admins may call this.
+    """
+    user = request.user
+    if not (user.is_authenticated and getattr(user, 'role', None) == 'platform_admin'):
+        return Response({'detail': 'Forbidden.'}, status=403)
+
+    apk_url = (request.data.get('apk_url') or '').strip()
+    if not apk_url:
+        return Response({'detail': 'apk_url is required.'}, status=400)
+
+    version_name = (request.data.get('version_name') or '').strip()
+    version_code = (request.data.get('version_code') or '')
+
+    title = (request.data.get('title') or 'Update available').strip()
+    if not title:
+        title = 'Update available'
+
+    if version_name:
+        body_default = f'New version {version_name} is ready. Tap to download and install.'
+    else:
+        body_default = 'A new version is ready. Tap to download and install.'
+    body = (request.data.get('body') or body_default).strip()
+
+    tokens = list(
+        User.objects.filter(fcm_token__isnull=False)
+        .exclude(fcm_token='')
+        .values_list('fcm_token', flat=True)
+    )
+    if not tokens:
+        return Response({'detail': 'No device tokens found.'}, status=200)
+
+    data = {
+        'type': 'app_update',
+        'apk_url': apk_url,
+    }
+    if version_name:
+        data['version_name'] = version_name
+    if str(version_code).strip():
+        data['version_code'] = str(version_code).strip()
+
+    send_multicast(tokens, title, body, data=data)
+    return Response({'detail': f'App update notification sent to {len(tokens)} devices.'}, status=200)
+
+
+@api_view(['POST'])
 @permission_classes([AllowAny])
 def setup_admin(request):
     # if User.objects.filter(role='platform_admin').exists():
